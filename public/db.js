@@ -1,3 +1,5 @@
+let db;
+
 //define a variable called request. This request creates an indexedDB on the browser (window) and opens it. in this case it is called budget.
 const request = window.indexedDB.open("budget", 1);
 
@@ -14,19 +16,21 @@ request.onupgradeneeded = function(event) {
 
  request.onsuccess = event => {
     //when or if the request to make the indexedDB is successfull, execute this code
-    console.log("success!")
-    console.log(request.result)
+    db = event.target.result;
+    if (navigator.onLine) {
+        checkDatabase()
+    }
 }
 
 request.onerror = event => {
-
+    console.log("There was an error: " + event.target.errorCode);
 }
 
 function saveRecord(record) {
     //we have lost connection
     //create a transaction record on the indexedDB, with readwrite access
     //go the the database, create a transaction. transaction method takes in 2 parameters: the object stor in the form of an array (in case there are multiple) and what you want to do with it, in this case give it read and write access, to read/write from/to the db
-    const transaction = db.transaction(["pendingTransaction"], "readwrite")
+    const transaction = db.transaction(["pendingTransactions"], "readwrite")
     
     //access the pendingTransactioin object store
     const store = transaction.objectStore("pendingTransactions")
@@ -35,7 +39,39 @@ function saveRecord(record) {
     store.add(record)
 }
 
+//this function looks to see if there are any pending transactions that have been added while the app was offline
 function checkDatabase() {
+    //open a transaction on the pending db
+    const transaction = db.transaction("pendingTransactions", "readwrite")
+    //access the pendingTransactioin object store
+    const store = transaction.objectStore("pendingTransactions")
+    //get all of the records from the object store and set to a variable. use the getAll method.
+    const getAll = store.getAll()
+
+    //once we have successfully gotten all the records from the object store,
+    //check if there are any records (length > 0),
+    //then via a front-end API fetch, invoke the POST route (mongoose insertMany) on the server that adds the records to the mongodb that lives on the server
+    getAll.onsuccess = function () {
+        fetch("/api/transaction/bulk", {
+            method: "POST",
+            body: JSON.stringify(getAll.result),
+            headers: {
+                Accept: "application/json, text/plain, */*",
+                "Content-Type": "application/json"
+            }
+        })
+            .then(response => response.json())
+            .then(() => {
+                //because we successfully added all records from the objectstore to the mongodb, we can now clear out the objectstore/indexedDB
+                    //open a transaction on the pending db
+                    const transaction = db.transaction("pendingTransactions", "readwrite")
+                    //access the pendingTransactioin object store
+                    const store = transaction.objectStore("pendingTransactions")
+                    //clear out the objectstore
+                    store.clear()
+
+            })
+    }
 
 }
 
